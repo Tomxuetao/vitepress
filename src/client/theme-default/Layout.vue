@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { provide, watch } from 'vue'
-import { useRoute } from 'vitepress'
-import { useSidebar, useCloseSidebarOnEscape } from './composables/sidebar'
+import { useData, useRoute } from 'vitepress'
+import { useSidebar, useCloseSidebarOnEscape } from './composables/sidebar.js'
 import VPSkipLink from './components/VPSkipLink.vue'
 import VPBackdrop from './components/VPBackdrop.vue'
 import VPNav from './components/VPNav.vue'
@@ -22,10 +22,12 @@ watch(() => route.path, closeSidebar)
 useCloseSidebarOnEscape(isSidebarOpen, closeSidebar)
 
 provide('close-sidebar', closeSidebar)
+
+const { frontmatter } = useData()
 </script>
 
 <template>
-  <div class="Layout">
+  <div v-if="frontmatter.layout !== false" class="Layout">
     <slot name="layout-top" />
     <VPSkipLink />
     <VPBackdrop class="backdrop" :show="isSidebarOpen" @click="closeSidebar" />
@@ -38,7 +40,11 @@ provide('close-sidebar', closeSidebar)
       <template #nav-screen-content-after><slot name="nav-screen-content-after" /></template>
     </VPNav>
     <VPLocalNav :open="isSidebarOpen" @open-menu="openSidebar" />
-    <VPSidebar :open="isSidebarOpen" />
+
+    <VPSidebar :open="isSidebarOpen">
+      <template #sidebar-nav-before><slot name="sidebar-nav-before" /></template>
+      <template #sidebar-nav-after><slot name="sidebar-nav-after" /></template>
+    </VPSidebar>
 
     <VPContent>
       <template #home-hero-before><slot name="home-hero-before" /></template>
@@ -46,6 +52,7 @@ provide('close-sidebar', closeSidebar)
       <template #home-features-before><slot name="home-features-before" /></template>
       <template #home-features-after><slot name="home-features-after" /></template>
 
+      <template #doc-footer-before><slot name="doc-footer-before" /></template>
       <template #doc-before><slot name="doc-before" /></template>
       <template #doc-after><slot name="doc-after" /></template>
 
@@ -60,6 +67,7 @@ provide('close-sidebar', closeSidebar)
     <VPFooter />
     <slot name="layout-bottom" />
   </div>
+  <Content v-else />
 </template>
 
 <style scoped>

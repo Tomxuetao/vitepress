@@ -1,8 +1,8 @@
 import fs from 'fs'
 import path from 'path'
-import sirv from 'sirv'
 import compression from 'compression'
-import polka from 'polka'
+import polka, { IOptions } from 'polka'
+import sirv, { RequestHandler } from 'sirv'
 import { resolveConfig } from '../config'
 
 function trimChar(str: string, char: string) {
@@ -24,19 +24,19 @@ export interface ServeOptions {
 }
 
 export async function serve(options: ServeOptions = {}) {
-  const port = options.port !== undefined ? options.port : 5000
+  const port = options.port !== undefined ? options.port : 4173
   const site = await resolveConfig(options.root, 'serve', 'production')
   const base = trimChar(options?.base ?? site?.site?.base ?? '', '/')
 
   const notAnAsset = (pathname: string) => !pathname.includes('/assets/')
   const notFound = fs.readFileSync(path.resolve(site.outDir, './404.html'))
-  const onNoMatch: polka.Options['onNoMatch'] = (req, res) => {
+  const onNoMatch: IOptions['onNoMatch'] = (req, res) => {
     res.statusCode = 404
     if (notAnAsset(req.path)) res.write(notFound.toString())
     res.end()
   }
 
-  const compress = compression()
+  const compress = compression() as RequestHandler
   const serve = sirv(site.outDir, {
     etag: true,
     maxAge: 31536000,
@@ -51,17 +51,15 @@ export async function serve(options: ServeOptions = {}) {
   })
 
   if (base) {
-    polka({ onNoMatch })
+    return polka({ onNoMatch })
       .use(base, compress, serve)
-      .listen(port, (err: any) => {
-        if (err) throw err
+      .listen(port, () => {
         console.log(`Built site served at http://localhost:${port}/${base}/\n`)
       })
   } else {
-    polka({ onNoMatch })
+    return polka({ onNoMatch })
       .use(compress, serve)
-      .listen(port, (err: any) => {
-        if (err) throw err
+      .listen(port, () => {
         console.log(`Built site served at http://localhost:${port}/\n`)
       })
   }

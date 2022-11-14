@@ -31,12 +31,12 @@ title: VitePress
 
 - Type: `string | boolean`
 
-The suffix for the title. It's same as [config.titleTemplate](../config/app-configs#titleTemplate), and it overrides the app config.
+The suffix for the title. It's same as [config.titleTemplate](../config/app-configs#titletemplate), and it overrides the app config.
 
 ```yaml
 ---
-title: VitePress,
-titleTemplate: Vite & Vue powered static site generator.
+title: VitePress
+titleTemplate: Vite & Vue powered static site generator
 ---
 ```
 
@@ -97,7 +97,7 @@ lastUpdated: false
 Determines the layout of the page.
 
 - `doc` - It applies default documentation styles to the markdown content.
-- `home` - Special layout for "Home Page". You may add extra options such as `hero` and `features` to rappidly create beautiful landing page.
+- `home` - Special layout for "Home Page". You may add extra options such as `hero` and `features` to rapidly create beautiful landing page.
 - `page` - Behave similar to `doc` but it applies no styles to the content. Useful when you want to create a fully custom page.
 
 ```yaml
@@ -119,7 +119,7 @@ It defines contents of home hero section.
 layout: home
 
 hero:
-  name: VuePress
+  name: VitePress
   text: Vite & Vue powered static site generator.
   tagline: Lorem ipsum...
   actions:
@@ -197,8 +197,22 @@ interface Feature {
 
   // Details of the feature.
   details: string
+
+  // Link when clicked on feature component. The link can
+  // be both internal or external.
+  //
+  // e.g. `guide/theme-home-page` or `htttps://example.com`
+  link?: string
+
+  // Link text to be shown inside feature component. Best
+  // used with `link` option.
+  //
+  // e.g. `Learn more`, `Visit page`, etc.
+  linkText?: string
 }
 ```
+
+You may learn more about it in [Theme: Home Page](../guide/theme-home-page).
 
 ## aside
 
@@ -212,3 +226,10 @@ If you want the right aside component in `doc` layout not to be shown, set this 
 aside: false
 ---
 ```
+
+## outline
+
+- Type: `number | [number, number] | 'deep' | false`
+- Default: `2`
+
+The levels of header in the outline to display for the page. It's same as [config.themeConfig.outline](../config/theme-configs#outline), and it overrides the theme config.

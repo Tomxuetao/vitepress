@@ -4,7 +4,6 @@ import c from 'picocolors'
 import fg from 'fast-glob'
 import {
   normalizePath,
-  AliasOptions,
   UserConfig as ViteConfig,
   mergeConfig as mergeViteConfig,
   loadConfigFromFile
@@ -17,9 +16,11 @@ import {
   DefaultTheme,
   APPEARANCE_KEY,
   createLangDictionary,
-  PageData
+  CleanUrlsMode,
+  PageData,
+  Awaitable
 } from './shared'
-import { resolveAliases, DEFAULT_THEME_PATH } from './alias'
+import { DEFAULT_THEME_PATH } from './alias'
 import { MarkdownOptions } from './markdown/markdown'
 import _debug from 'debug'
 
@@ -35,7 +36,7 @@ export interface UserConfig<ThemeConfig = any> {
   titleTemplate?: string | boolean
   description?: string
   head?: HeadConfig[]
-  appearance?: boolean
+  appearance?: boolean | 'dark'
   themeConfig?: ThemeConfig
   locales?: Record<string, LocaleConfig>
   markdown?: MarkdownOptions
@@ -61,7 +62,7 @@ export interface UserConfig<ThemeConfig = any> {
   scrollOffset?: number | string
 
   /**
-   * Enable MPA / zero-JS mode
+   * Enable MPA / zero-JS mode.
    * @experimental
    */
   mpa?: boolean
@@ -74,10 +75,40 @@ export interface UserConfig<ThemeConfig = any> {
   ignoreDeadLinks?: boolean
 
   /**
+   * @experimental
+   * Remove '.html' from URLs and generate clean directory structure.
+   *
+   * Available Modes:
+   * - `disabled`: generates `/foo.html` for every `/foo.md` and shows `/foo.html` in browser
+   * - `without-subfolders`: generates `/foo.html` for every `/foo.md` but shows `/foo` in browser
+   * - `with-subfolders`: generates `/foo/index.html` for every `/foo.md` and shows `/foo` in browser
+   *
+   * @default 'disabled'
+   */
+  cleanUrls?: CleanUrlsMode
+
+  /**
+   * Use web fonts instead of emitting font files to dist.
+   * The used theme should import a file named `fonts.(s)css` for this to work.
+   * If you are a theme author, to support this, place your web font import
+   * between `webfont-marker-begin` and `webfont-marker-end` comments.
+   *
+   * @default true in webcontainers, else false
+   */
+  useWebFonts?: boolean
+
+  /**
    * Build end hook: called when SSG finish.
    * @param siteConfig The resolved configuration.
    */
-  buildEnd?: (siteConfig: SiteConfig) => Promise<void>
+  buildEnd?: (siteConfig: SiteConfig) => Awaitable<void>
+
+  /**
+   * Head transform hook: runs before writing HTML to dist.
+   *
+   * This build hook will allow you to modify the head adding new entries that cannot be statically added.
+   */
+  transformHead?: (ctx: TransformContext) => Awaitable<HeadConfig[]>
 
   /**
    * HTML transform hook: runs before writing HTML to dist.
@@ -85,22 +116,30 @@ export interface UserConfig<ThemeConfig = any> {
   transformHtml?: (
     code: string,
     id: string,
-    ctx: {
-      siteConfig: SiteConfig
-      siteData: SiteData
-      pageData: PageData
-      title: string
-      description: string
-      head: HeadConfig[]
-      content: string
-    }
-  ) => Promise<string | void>
+    ctx: TransformContext
+  ) => Awaitable<string | void>
+
+  /**
+   * PageData transform hook: runs when rendering markdown to vue
+   */
+  transformPageData?: (
+    pageData: PageData
+  ) => Awaitable<Partial<PageData> | { [key: string]: any } | void>
+}
+
+export interface TransformContext {
+  siteConfig: SiteConfig
+  siteData: SiteData
+  pageData: PageData
+  title: string
+  description: string
+  head: HeadConfig[]
+  content: string
 }
 
 export type RawConfigExports<ThemeConfig = any> =
-  | UserConfig<ThemeConfig>
-  | Promise<UserConfig<ThemeConfig>>
-  | (() => UserConfig<ThemeConfig> | Promise<UserConfig<ThemeConfig>>)
+  | Awaitable<UserConfig<ThemeConfig>>
+  | (() => Awaitable<UserConfig<ThemeConfig>>)
 
 export interface SiteConfig<ThemeConfig = any>
   extends Pick<
@@ -112,17 +151,21 @@ export interface SiteConfig<ThemeConfig = any>
     | 'mpa'
     | 'lastUpdated'
     | 'ignoreDeadLinks'
+    | 'cleanUrls'
+    | 'useWebFonts'
     | 'buildEnd'
+    | 'transformHead'
     | 'transformHtml'
+    | 'transformPageData'
   > {
   root: string
   srcDir: string
   site: SiteData<ThemeConfig>
   configPath: string | undefined
+  configDeps: string[]
   themeDir: string
   outDir: string
   tempDir: string
-  alias: AliasOptions
   pages: string[]
 }
 
@@ -150,7 +193,11 @@ export async function resolveConfig(
   command: 'serve' | 'build' = 'serve',
   mode = 'development'
 ): Promise<SiteConfig> {
-  const [userConfig, configPath] = await resolveUserConfig(root, command, mode)
+  const [userConfig, configPath, configDeps] = await resolveUserConfig(
+    root,
+    command,
+    mode
+  )
   const site = await resolveSiteData(root, userConfig)
   const srcDir = path.resolve(root, userConfig.srcDir || '.')
   const outDir = userConfig.outDir
@@ -183,55 +230,61 @@ export async function resolveConfig(
     themeDir,
     pages,
     configPath,
+    configDeps,
     outDir,
     tempDir: resolve(root, '.temp'),
     markdown: userConfig.markdown,
     lastUpdated: userConfig.lastUpdated,
-    alias: resolveAliases(root, themeDir),
     vue: userConfig.vue,
     vite: userConfig.vite,
     shouldPreload: userConfig.shouldPreload,
     mpa: !!userConfig.mpa,
     ignoreDeadLinks: userConfig.ignoreDeadLinks,
+    cleanUrls: userConfig.cleanUrls || 'disabled',
+    useWebFonts:
+      userConfig.useWebFonts ??
+      typeof process.versions.webcontainer === 'string',
     buildEnd: userConfig.buildEnd,
-    transformHtml: userConfig.transformHtml
+    transformHead: userConfig.transformHead,
+    transformHtml: userConfig.transformHtml,
+    transformPageData: userConfig.transformPageData
   }
 
   return config
 }
 
-const supportedConfigExtensions = ['js', 'ts', 'mjs', 'mts']
+const supportedConfigExtensions = ['js', 'ts', 'cjs', 'mjs', 'cts', 'mts']
 
 async function resolveUserConfig(
   root: string,
   command: 'serve' | 'build',
   mode: string
-): Promise<[UserConfig, string | undefined]> {
+): Promise<[UserConfig, string | undefined, string[]]> {
   // load user config
   const configPath = supportedConfigExtensions
     .map((ext) => resolve(root, `config.${ext}`))
     .find(fs.pathExistsSync)
 
-  const userConfig: RawConfigExports = configPath
-    ? ((
-        await loadConfigFromFile(
-          {
-            command,
-            mode
-          },
-          configPath,
-          root
-        )
-      )?.config as any)
-    : {}
-
-  if (configPath) {
-    debug(`loaded config at ${c.yellow(configPath)}`)
-  } else {
+  let userConfig: RawConfigExports = {}
+  let configDeps: string[] = []
+  if (!configPath) {
     debug(`no config file found.`)
+  } else {
+    const configExports = await loadConfigFromFile(
+      { command, mode },
+      configPath,
+      root
+    )
+    if (configExports) {
+      userConfig = configExports.config
+      configDeps = configExports.dependencies.map((file) =>
+        normalizePath(path.resolve(file))
+      )
+    }
+    debug(`loaded config at ${c.yellow(configPath)}`)
   }
 
-  return [await resolveConfigExtends(userConfig), configPath]
+  return [await resolveConfigExtends(userConfig), configPath, configDeps]
 }
 
 async function resolveConfigExtends(
@@ -293,7 +346,8 @@ export async function resolveSiteData(
     themeConfig: userConfig.themeConfig || {},
     locales: userConfig.locales || {},
     langs: createLangDictionary(userConfig),
-    scrollOffset: userConfig.scrollOffset || 90
+    scrollOffset: userConfig.scrollOffset || 90,
+    cleanUrls: userConfig.cleanUrls || 'disabled'
   }
 }
 
@@ -301,16 +355,21 @@ function resolveSiteDataHead(userConfig?: UserConfig): HeadConfig[] {
   const head = userConfig?.head ?? []
 
   // add inline script to apply dark mode, if user enables the feature.
-  // this is required to prevent "flush" on initial page load.
+  // this is required to prevent "flash" on initial page load.
   if (userConfig?.appearance ?? true) {
+    // if appearance mode set to light or dark, default to the defined mode
+    // in case the user didn't specify a preference - otherwise, default to auto
+    const fallbackPreference =
+      userConfig?.appearance !== true ? userConfig?.appearance ?? '' : 'auto'
+
     head.push([
       'script',
       { id: 'check-dark-light' },
       `
         ;(() => {
-          const saved = localStorage.getItem('${APPEARANCE_KEY}')
-          const prefereDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-          if (!saved || saved === 'auto' ? prefereDark : saved === 'dark') {
+          const preference = localStorage.getItem('${APPEARANCE_KEY}') || '${fallbackPreference}'
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          if (!preference || preference === 'auto' ? prefersDark : preference === 'dark') {
             document.documentElement.classList.add('dark')
           }
         })()

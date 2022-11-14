@@ -1,13 +1,21 @@
-import { InjectionKey, Ref, shallowRef, readonly, computed, inject } from 'vue'
-import { Route } from './router'
+import {
+  InjectionKey,
+  Ref,
+  computed,
+  inject,
+  readonly,
+  ref,
+  shallowRef
+} from 'vue'
+import { Route } from './router.js'
 import siteData from '@siteData'
 import {
   PageData,
   SiteData,
   resolveSiteDataByRoute,
   createTitle
-} from '../shared'
-import { withBase } from './utils'
+} from '../shared.js'
+import { withBase } from './utils.js'
 
 export const dataSymbol: InjectionKey<VitePressData> = Symbol()
 
@@ -20,13 +28,12 @@ export interface VitePressData<T = any> {
   description: Ref<string>
   lang: Ref<string>
   localePath: Ref<string>
+  isDark: Ref<boolean>
 }
 
 // site data is a singleton
-export type SiteDataRef<T = any> = Ref<SiteData<T>>
-
 export const siteDataRef: Ref<SiteData> = shallowRef(
-  import.meta.env.PROD ? siteData : readonly(siteData)
+  (import.meta.env.PROD ? siteData : readonly(siteData)) as SiteData
 )
 
 // hmr
@@ -62,7 +69,8 @@ export function initData(route: Route): VitePressData {
     }),
     description: computed(() => {
       return route.data.description || site.value.description
-    })
+    }),
+    isDark: ref(false)
   }
 }
 

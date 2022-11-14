@@ -1,4 +1,3 @@
-import { createRequire } from 'module'
 import fs from 'fs-extra'
 import path from 'path'
 import { pathToFileURL } from 'url'
@@ -10,14 +9,15 @@ import {
   PageData,
   createTitle,
   notFoundPageData,
-  mergeHead
+  mergeHead,
+  EXTERNAL_URL_RE,
+  sanitizeFileName
 } from '../shared'
 import { slash } from '../utils/slash'
 import { SiteConfig, resolveSiteDataByRoute } from '../config'
 
-const require = createRequire(import.meta.url)
-
 export async function renderPage(
+  render: (path: string) => Promise<string>,
   config: SiteConfig,
   page: string, // foo.md
   result: RollupOutput | null,
@@ -26,31 +26,13 @@ export async function renderPage(
   pageToHashMap: Record<string, string>,
   hashMapString: string
 ) {
-  const { createApp } = await import(
-    pathToFileURL(path.join(config.tempDir, `app.js`)).toString()
-  )
-  const { app, router } = createApp()
   const routePath = `/${page.replace(/\.md$/, '')}`
   const siteData = resolveSiteDataByRoute(config.site, routePath)
-  router.go(routePath)
-
-  // lazy require server-renderer for production build
-  // prioritize project root over vitepress' own dep
-  let rendererPath
-  try {
-    rendererPath = require.resolve('vue/server-renderer', {
-      paths: [config.root]
-    })
-  } catch (e) {
-    rendererPath = require.resolve('vue/server-renderer')
-  }
 
   // render page
-  const content = await import(pathToFileURL(rendererPath).toString()).then(
-    (r) => r.renderToString(app)
-  )
+  const content = await render(routePath)
 
-  const pageName = page.replace(/\//g, '_')
+  const pageName = sanitizeFileName(page.replace(/\//g, '_'))
   // server build doesn't need hash
   const pageServerJsFileName = pageName + '.js'
   // for any initial page load, we only need the lean version of the page js
@@ -104,13 +86,17 @@ export async function renderPage(
 
   const preloadLinksString = preloadLinks
     .map((file) => {
-      return `<link rel="modulepreload" href="${siteData.base}${file}">`
+      return `<link rel="modulepreload" href="${
+        EXTERNAL_URL_RE.test(file) ? '' : siteData.base // don't add base to external urls
+      }${file}">`
     })
     .join('\n    ')
 
   const prefetchLinkString = prefetchLinks
     .map((file) => {
-      return `<link rel="prefetch" href="${siteData.base}${file}">`
+      return `<link rel="prefetch" href="${
+        EXTERNAL_URL_RE.test(file) ? '' : siteData.base // don't add base to external urls
+      }${file}">`
     })
     .join('\n    ')
 
@@ -121,9 +107,22 @@ export async function renderPage(
   const title: string = createTitle(siteData, pageData)
   const description: string = pageData.description || siteData.description
 
-  const head = mergeHead(
+  const headBeforeTransform = mergeHead(
     siteData.head,
     filterOutHeadDescription(pageData.frontmatter.head)
+  )
+
+  const head = mergeHead(
+    headBeforeTransform,
+    (await config.transformHead?.({
+      siteConfig: config,
+      siteData,
+      pageData,
+      title,
+      description,
+      head: headBeforeTransform,
+      content
+    })) || []
   )
 
   let inlinedScript = ''
@@ -171,7 +170,15 @@ export async function renderPage(
     ${inlinedScript}
   </body>
 </html>`.trim()
-  const htmlFileName = path.join(config.outDir, page.replace(/\.md$/, '.html'))
+  const createSubDirectory =
+    config.cleanUrls === 'with-subfolders' &&
+    !/(^|\/)(index|404).md$/.test(page)
+
+  const htmlFileName = path.join(
+    config.outDir,
+    page.replace(/\.md$/, createSubDirectory ? '/index.html' : '.html')
+  )
+
   await fs.ensureDir(path.dirname(htmlFileName))
   const transformedHtml = await config.transformHtml?.(html, htmlFileName, {
     siteConfig: config,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { provide } from 'vue'
-import { useNav } from '../composables/nav'
-import { useSidebar } from '../composables/sidebar'
+import { useNav } from '../composables/nav.js'
+import { useSidebar } from '../composables/sidebar.js'
 import VPNavBar from './VPNavBar.vue'
 import VPNavScreen from './VPNavScreen.vue'
 
@@ -29,10 +29,11 @@ provide('close-screen', closeScreen)
 <style scoped>
 .VPNav {
   position: relative;
-  top: 0;
+  top: var(--vp-layout-top-height, 0px);
   left: 0;
   z-index: var(--vp-z-index-nav);
   width: 100%;
+  pointer-events: none;
 }
 
 @media (min-width: 960px) {

@@ -21,9 +21,9 @@ Here it describes the settings for the VitePress default theme. If you're using 
 
 ## logo
 
-- Type: `string`
+- Type: `ThemeableImage`
 
-Logo file to display in nav bar, right before the site title.
+Logo file to display in nav bar, right before the site title. Accepts a path string, or an object to set a different logo for light/dark mode.
 
 ```ts
 export default {
@@ -31,6 +31,11 @@ export default {
     logo: '/logo.svg'
   }
 }
+```
+
+```ts
+type Image = string | { src: string; alt?: string }
+type ThemeableImage = Image | { light: Image; dark: Image }
 ```
 
 ## siteTitle
@@ -91,7 +96,7 @@ interface NavItemWithChildren {
 
 - Type: `Sidebar`
 
-The configuration for the sidebar menu item. You may learn more details at [Theme: Nav](../guide/theme-sidebar).
+The configuration for the sidebar menu item. You may learn more details at [Theme: Sidebar](../guide/theme-sidebar).
 
 ```js
 export default {
@@ -130,6 +135,12 @@ interface SidebarItem {
 }
 ```
 
+## outline
+
+- Type: `number | [number, number] | 'deep' | false`
+- Default: `2`
+
+The levels of header to display in the outline. You can specify a particular level by passing a number, or you can provide a level range by passing a tuple containing the bottom and upper limits. When passing `'deep'` which equals `[2, 6]`, all header levels are shown in the outline except `h1`. Set `false` to hide outline.
 
 ## outlineTitle
 
@@ -148,7 +159,7 @@ export default {
 
 ## socialLinks
 
-- Type: `SocialLink`
+- Type: `SocialLink[]`
 
 You may define this option to show your social account links with icons in nav.
 
@@ -158,7 +169,13 @@ export default {
     socialLinks: [
       { icon: 'github', link: 'https://github.com/vuejs/vitepress' },
       { icon: 'twitter', link: '...' },
-      { icon: 'discord', link: '...' }
+      // You can also add custom icons by passing SVG as string:
+      {
+        icon: {
+          svg: '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Dribbble</title><path d="M12...6.38z"/></svg>'
+        },
+        link: '...'
+      }
     ]
   }
 }
@@ -179,6 +196,7 @@ type SocialLinkIcon =
   | 'slack'
   | 'twitter'
   | 'youtube'
+  | { svg: string }
 ```
 
 ## footer
@@ -244,7 +262,7 @@ export default {
 }
 ```
 
-## carbonAds
+## carbonAds {#carbon-ads}
 
 - Type: `CarbonAds`
 

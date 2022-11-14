@@ -14,10 +14,14 @@ export default {
 
 ## appearance
 
-- Type: `boolean`
+- Type: `boolean | 'dark'`
 - Default: `true`
 
-Whether to enable "Dark Mode" or not. If the option is set to `true`, it adds `.dark` class to the `<html>` tag depending on the users preference.
+Whether to enable dark mode or not.
+
+- If the option is set to `true`, the default theme will be determined by the user's preferred color scheme.
+- If the option is set to `dark`, the theme will be dark by default, unless the user manually toggles it.
+- If the option is set to `false`, users will not be able to toggle the theme.
 
 It also injects inline script that tries to read users settings from local storage by `vitepress-theme-appearance` key and restores users preferred color mode.
 
@@ -120,7 +124,7 @@ export default {
 
 - Type: `MarkdownOption`
 
-Configre Markdown parser options. VitePress uses [Markdown-it](https://github.com/markdown-it/markdown-it) as the parser, and [Shiki](https://shiki.matsu.io/) to highlight language syntax. Inside this option, you may pass various Markdown related options to fit your needs.
+Configure Markdown parser options. VitePress uses [Markdown-it](https://github.com/markdown-it/markdown-it) as the parser, and [Shiki](https://shiki.matsu.io/) to highlight language syntax. Inside this option, you may pass various Markdown related options to fit your needs.
 
 ```js
 export default {
@@ -148,10 +152,8 @@ interface MarkdownOptions extends MarkdownIt.Options {
   lineNumbers?: boolean
 
   // markdown-it-anchor plugin options.
-  // See: https://github.com/valeriangalliat/markdown-it-anchor
-  anchor?: {
-    permalink?: anchor.AnchorOptions['permalink']
-  }
+  // See: https://github.com/valeriangalliat/markdown-it-anchor#usage
+  anchor?: anchorPlugin.AnchorOptions
 
   // markdown-it-attrs plugin options.
   // See: https://github.com/arve0/markdown-it-attrs
@@ -162,12 +164,50 @@ interface MarkdownOptions extends MarkdownIt.Options {
     disable?: boolean
   }
 
-  // markdown-it-toc-done-right plugin options
-  // See: https://github.com/nagaozen/markdown-it-toc-done-right
-  toc?: any
+  // @mdit-vue/plugin-frontmatter plugin options.
+  // See: https://github.com/mdit-vue/mdit-vue/tree/main/packages/plugin-frontmatter#options
+  frontmatter?: FrontmatterPluginOptions
+
+  // @mdit-vue/plugin-headers plugin options.
+  // See: https://github.com/mdit-vue/mdit-vue/tree/main/packages/plugin-headers#options
+  headers?: HeadersPluginOptions
+
+  // @mdit-vue/plugin-sfc plugin options.
+  // See: https://github.com/mdit-vue/mdit-vue/tree/main/packages/plugin-sfc#options
+  sfc?: SfcPluginOptions
+
+  // @mdit-vue/plugin-toc plugin options.
+  // See: https://github.com/mdit-vue/mdit-vue/tree/main/packages/plugin-toc#options
+  toc?: TocPluginOptions
 
   // Configure the Markdown-it instance.
   config?: (md: MarkdownIt) => void
+}
+```
+
+## outDir
+
+- Type: `string`
+- Default: `./.vitepress/dist`
+
+The build output location for the site, relative to project root (`docs` folder if you're running `vitepress build docs`).
+
+```ts
+export default {
+  outDir: '../public'
+}
+```
+
+## srcDir
+
+- Type: `string`
+- Default: `.`
+
+The directory where your markdown pages are stored, relative to project root.
+
+```ts
+export default {
+  srcDir: './src'
 }
 ```
 
@@ -196,5 +236,119 @@ Set `false` to disable the feature. If the option is `undefined`, then the value
 export default {
   title: 'VitePress',
   titleTemplate: 'Vite & Vue powered static site generator'
+}
+```
+
+## cleanUrls (Experimental)
+
+- Type: `'disabled' | 'without-subfolders' | 'with-subfolders'`
+- Default: `'disabled'`
+
+Allows removing trailing `.html` from URLs and, optionally, generating clean directory structure. Available modes:
+
+|          Mode          |   Page    |  Generated Page   |     URL     |
+| :--------------------: | :-------: | :---------------: | :---------: |
+|      `'disabled'`      | `/foo.md` |    `/foo.html`    | `/foo.html` |
+| `'without-subfolders'` | `/foo.md` |    `/foo.html`    |   `/foo`    |
+|  `'with-subfolders'`   | `/foo.md` | `/foo/index.html` |   `/foo`    |
+
+::: warning
+
+Enabling this may require additional configuration on your hosting platform. For it to work, your server must serve the generated page on requesting the URL (see above table) **without a redirect**.
+
+:::
+
+```ts
+export default {
+  cleanUrls: 'with-subfolders'
+}
+```
+
+## Build Hooks
+
+VitePress build hooks allow you to add new functionality and behaviors to your website:
+
+- Sitemap
+- Search Indexing
+- PWA
+
+### transformHead
+
+- Type: `(ctx: TransformContext) => Awaitable<HeadConfig[]>`
+
+`transformHead` is a build hook to transform the head before generating each page. It will allow you to add head entries that cannot be statically added to your VitePress config. You only need to return extra entries, they will be merged automatically with the existing ones.
+
+::: warning
+Don't mutate anything inside the `ctx`.
+:::
+
+```ts
+export default {
+  async transformHead(ctx) {
+  }
+}
+```
+
+```ts
+interface TransformContext {
+  siteConfig: SiteConfig
+  siteData: SiteData
+  pageData: PageData
+  title: string
+  description: string
+  head: HeadConfig[]
+  content: string
+}
+```
+
+### transformHtml
+
+- Type: `(code: string, id: string, ctx: TransformContext) => Awaitable<string | void>`
+
+`transformHtml` is a build hook to transform the content of each page before saving to disk.
+
+::: warning
+Don't mutate anything inside the `ctx`. Also, modifying the html content may cause hydration problems in runtime.
+:::
+
+```ts
+export default {
+  async transformHtml(code, id, context) {
+  }
+}
+```
+
+### transformPageData
+
+- Type: `(pageData: PageData) => Awaitable<Partial<PageData> | { [key: string]: any } | void>`
+
+`transformPageData` is a hook to transform the `pageData` of each page. You can directly mutate `pageData` or return changed values which will be merged into PageData.
+
+
+```ts
+export default {
+  async transformPageData(pageData) {
+    pageData.contributors = await getPageContributors(pageData.relativePath)
+  }
+
+  // or return data to be merged
+  async transformPageData(pageData) {
+    return {
+      contributors: await getPageContributors(pageData.relativePath)
+    }
+  }
+}
+```
+
+### buildEnd
+
+- Type: `(siteConfig: SiteConfig) => Awaitable<void>`
+
+`buildEnd` is a build CLI hook, it will run after build (SSG) finish but before VitePress CLI process exits.
+
+```ts
+export default {
+  async buildEnd(siteConfig) {
+  }
 }
 ```

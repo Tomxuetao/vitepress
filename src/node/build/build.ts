@@ -6,15 +6,19 @@ import { OutputChunk, OutputAsset } from 'rollup'
 import { resolveConfig } from '../config'
 import { renderPage } from './render'
 import { bundle, okMark, failMark } from './bundle'
+import { createRequire } from 'module'
+import { pathToFileURL } from 'url'
+import pkgDir from 'pkg-dir'
 
 export async function build(
-  root: string,
+  root?: string,
   buildOptions: BuildOptions & { base?: string; mpa?: string } = {}
 ) {
   const start = Date.now()
 
   process.env.NODE_ENV = 'production'
   const siteConfig = await resolveConfig(root, 'build', 'production')
+  const unlinkVue = linkVue()
 
   if (buildOptions.base) {
     siteConfig.site.base = buildOptions.base
@@ -32,6 +36,9 @@ export async function build(
       buildOptions
     )
 
+    const entryPath = path.join(siteConfig.tempDir, 'app.js')
+    const { render } = await import(pathToFileURL(entryPath).toString())
+
     const spinner = ora()
     spinner.start('rendering pages...')
 
@@ -39,7 +46,10 @@ export async function build(
       const appChunk =
         clientResult &&
         (clientResult.output.find(
-          (chunk) => chunk.type === 'chunk' && chunk.isEntry
+          (chunk) =>
+            chunk.type === 'chunk' &&
+            chunk.isEntry &&
+            chunk.facadeModuleId?.endsWith('.js')
         ) as OutputChunk)
 
       const cssChunk = (
@@ -56,17 +66,20 @@ export async function build(
 
       const pages = ['404.md', ...siteConfig.pages]
 
-      for (const page of pages) {
-        await renderPage(
-          siteConfig,
-          page,
-          clientResult,
-          appChunk,
-          cssChunk,
-          pageToHashMap,
-          hashMapString
+      await Promise.all(
+        pages.map((page) =>
+          renderPage(
+            render,
+            siteConfig,
+            page,
+            clientResult,
+            appChunk,
+            cssChunk,
+            pageToHashMap,
+            hashMapString
+          )
         )
-      }
+      )
     } catch (e) {
       spinner.stopAndPersist({
         symbol: failMark
@@ -84,10 +97,28 @@ export async function build(
       pageToHashMap
     )
   } finally {
-    await fs.remove(siteConfig.tempDir)
+    unlinkVue()
+    if (!process.env.DEBUG)
+      fs.rmSync(siteConfig.tempDir, { recursive: true, force: true })
   }
 
   await siteConfig.buildEnd?.(siteConfig)
 
   console.log(`build complete in ${((Date.now() - start) / 1000).toFixed(2)}s.`)
+}
+
+function linkVue() {
+  const root = pkgDir.sync()
+  if (root) {
+    const dest = path.resolve(root, 'node_modules/vue')
+    // if user did not install vue by themselves, link VitePress' version
+    if (!fs.existsSync(dest)) {
+      const src = path.dirname(createRequire(import.meta.url).resolve('vue'))
+      fs.ensureSymlinkSync(src, dest, 'junction')
+      return () => {
+        fs.unlinkSync(dest)
+      }
+    }
+  }
+  return () => {}
 }
