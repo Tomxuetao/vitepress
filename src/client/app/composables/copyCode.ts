@@ -1,23 +1,27 @@
-import { inBrowser } from '../utils.js'
+import { inBrowser } from 'vitepress'
 
 export function useCopyCode() {
   if (inBrowser) {
-    const timeoutIdMap: Map<HTMLElement, NodeJS.Timeout> = new Map()
+    const timeoutIdMap: WeakMap<HTMLElement, NodeJS.Timeout> = new WeakMap()
     window.addEventListener('click', (e) => {
       const el = e.target as HTMLElement
       if (el.matches('div[class*="language-"] > button.copy')) {
         const parent = el.parentElement
-        const sibling = el.nextElementSibling
-          ?.nextElementSibling as HTMLPreElement | null
+        const sibling = el.nextElementSibling?.nextElementSibling
         if (!parent || !sibling) {
           return
         }
 
         const isShell = /language-(shellscript|shell|bash|sh|zsh)/.test(
-          parent.classList.toString()
+          parent.className
         )
 
-        let { innerText: text = '' } = sibling
+        let text = ''
+
+        sibling
+          .querySelectorAll('span.line:not(.diff.remove)')
+          .forEach((node) => (text += (node.textContent || '') + '\n'))
+        text = text.slice(0, -1)
 
         if (isShell) {
           text = text.replace(/^ *(\$|>) /gm, '').trim()

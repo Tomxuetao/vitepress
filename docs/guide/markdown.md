@@ -6,6 +6,16 @@ VitePress comes with built in Markdown Extensions.
 
 Headers automatically get anchor links applied. Rendering of anchors can be configured using the `markdown.anchor` option.
 
+### Custom anchors
+
+To specify a custom anchor tag for a heading instead of using the auto-generated one, add a suffix to the heading:
+
+```
+# Using custom anchors {#my-anchor}
+```
+
+This allows you to link to the heading as `#my-anchor` instead of the default `#using-custom-anchors`.
+
 ## Links
 
 Both internal and external links gets special treatments.
@@ -64,7 +74,7 @@ lang: en-US
 
 This data will be available to the rest of the page, along with all custom and theming components.
 
-For more details, see [Frontmatter](./frontmatter).
+For more details, see [Frontmatter](../reference/frontmatter-config).
 
 ## GitHub-Style Tables
 
@@ -215,7 +225,7 @@ Wraps in a <div class="vp-raw">
 - Install required deps with your preferred package manager:
 
   ```sh
-  $ yarn add -D postcss postcss-prefix-selector
+  $ npm install -D postcss postcss-prefix-selector
   ```
 
 - Create a file named `docs/.postcssrc.cjs` and add this to it:
@@ -279,9 +289,9 @@ export default {
 </ul>
 ```
 
-A [list of valid languages](https://github.com/shikijs/shiki/blob/main/docs/languages.md) is available on Shiki’s repository.
+A [list of valid languages](https://github.com/shikijs/shiki/blob/main/docs/languages.md) is available on Shiki's repository.
 
-You may also customize syntax highlight theme in app config. Please see [`markdown` options](../config/app-configs#markdown) for more details.
+You may also customize syntax highlight theme in app config. Please see [`markdown` options](../reference/site-config#markdown) for more details.
 
 ## Line Highlighting in Code Blocks
 
@@ -360,7 +370,7 @@ Alternatively, it's possible to highlight directly in the line by using the `// 
 export default {
   data () {
     return {
-      msg: 'Highlighted!' // [!codeㅤ hl]
+      msg: 'Highlighted!' // [!code  hl]
     }
   }
 }
@@ -371,7 +381,7 @@ export default {
 
 ```js
 export default {
-  data () {
+  data() {
     return {
       msg: 'Highlighted!' // [!code hl]
     }
@@ -381,18 +391,20 @@ export default {
 
 ## Focus in Code Blocks
 
-Adding the `// [!code focus]` comment on a line will focus it and blur the other parts of the code. 
+Adding the `// [!code focus]` comment on a line will focus it and blur the other parts of the code.
 
 Additionally, you can define a number of lines to focus using `// [!code focus:<lines>]`.
 
 **Input**
+
+Note that only one space is required after `!code`, here are two to prevent processing.
 
 ````
 ```js
 export default {
   data () {
     return {
-      msg: 'Focused!' // [!codeㅤ focus]
+      msg: 'Focused!' // [!code  focus]
     }
   }
 }
@@ -403,7 +415,7 @@ export default {
 
 ```js
 export default {
-  data () {
+  data() {
     return {
       msg: 'Focused!' // [!code focus]
     }
@@ -411,19 +423,21 @@ export default {
 }
 ```
 
-## Colored diffs in Code Blocks
+## Colored Diffs in Code Blocks
 
-Adding the `// [!code --]` or `// [!code ++]` comments on a line will create a diff of that line, while keeping the colors of the codeblock. 
+Adding the `// [!code --]` or `// [!code ++]` comments on a line will create a diff of that line, while keeping the colors of the codeblock.
 
 **Input**
+
+Note that only one space is required after `!code`, here are two to prevent processing.
 
 ````
 ```js
 export default {
   data () {
     return {
-      msg: 'Removed' // [!codeㅤ --]
-      msg: 'Added' // [!codeㅤ ++]
+      msg: 'Removed' // [!code  --]
+      msg: 'Added' // [!code  ++]
     }
   }
 }
@@ -443,19 +457,21 @@ export default {
 }
 ```
 
-## Errors and warnings
+## Errors and Warnings in Code Blocks
 
 Adding the `// [!code warning]` or `// [!code error]` comments on a line will color it accordingly.
 
 **Input**
+
+Note that only one space is required after `!code`, here are two to prevent processing.
 
 ````
 ```js
 export default {
   data () {
     return {
-      msg: 'Error', // [!codeㅤ error]
-      msg: 'Warning' // [!codeㅤ warning]
+      msg: 'Error', // [!code  error]
+      msg: 'Warning' // [!code  warning]
     }
   }
 }
@@ -466,7 +482,7 @@ export default {
 
 ```js
 export default {
-  data () {
+  data() {
     return {
       msg: 'Error', // [!code error]
       msg: 'Warning' // [!code warning]
@@ -474,7 +490,6 @@ export default {
   }
 }
 ```
-
 
 ## Line Numbers
 
@@ -488,7 +503,39 @@ export default {
 }
 ```
 
-Please see [`markdown` options](../config/app-configs#markdown) for more details.
+Please see [`markdown` options](../reference/site-config#markdown) for more details.
+
+You can add `:line-numbers` / `:no-line-numbers` mark in your fenced code blocks to override the value set in config.
+
+**Input**
+
+````md
+```ts {1}
+// line-numbers is disabled by default
+const line2 = 'This is line 2'
+const line3 = 'This is line 3'
+```
+
+```ts:line-numbers {1}
+// line-numbers is enabled
+const line2 = 'This is line 2'
+const line3 = 'This is line 3'
+```
+````
+
+**Output**
+
+```ts {1}
+// line-numbers is disabled by default
+const line2 = 'This is line 2'
+const line3 = 'This is line 3'
+```
+
+```ts:line-numbers {1}
+// line-numbers is enabled
+const line2 = 'This is line 2'
+const line3 = 'This is line 3'
+```
 
 ## Import Code Snippets
 
@@ -519,7 +566,12 @@ It also supports [line highlighting](#line-highlighting-in-code-blocks):
 <<< @/snippets/snippet.js{2}
 
 ::: tip
-The value of `@` corresponds to the source root. By default it's the VitePress project root, unless `srcDir` is configured.
+The value of `@` corresponds to the source root. By default it's the VitePress project root, unless `srcDir` is configured. Alternatively, you can also import from relative paths:
+
+```md
+<<< ../snippets/snippet.js
+```
+
 :::
 
 You can also use a [VS Code region](https://code.visualstudio.com/docs/editor/codebasics#_folding) to only include the corresponding part of the code file. You can provide a custom region name after a `#` following the filepath:
@@ -544,14 +596,113 @@ You can also specify the language inside the braces (`{}`) like this:
 <<< @/snippets/snippet.cs{c#}
 
 <!-- with line highlighting: -->
+
 <<< @/snippets/snippet.cs{1,2,4-6 c#}
+
+<!-- with line numbers: -->
+
+<<< @/snippets/snippet.cs{1,2,4-6 c#:line-numbers}
 ```
 
 This is helpful if source language cannot be inferred from your file extension.
 
+## Code Groups
+
+You can group multiple code blocks like this:
+
+**Input**
+
+````md
+::: code-group
+
+```js [config.js]
+/**
+ * @type {import('vitepress').UserConfig}
+ */
+const config = {
+  // ...
+}
+
+export default config
+```
+
+```ts [config.ts]
+import type { UserConfig } from 'vitepress'
+
+const config: UserConfig = {
+  // ...
+}
+
+export default config
+```
+
+:::
+````
+
+**Output**
+
+::: code-group
+
+```js [config.js]
+/**
+ * @type {import('vitepress').UserConfig}
+ */
+const config = {
+  // ...
+}
+
+export default config
+```
+
+```ts [config.ts]
+import type { UserConfig } from 'vitepress'
+
+const config: UserConfig = {
+  // ...
+}
+
+export default config
+```
+
+:::
+
+You can also [import snippets](#import-code-snippets) in code groups:
+
+**Input**
+
+```md
+::: code-group
+
+<!-- filename is used as title by default -->
+
+<<< @/snippets/snippet.js
+
+<!-- you can provide a custom one too -->
+
+<<< @/snippets/snippet-with-region.js#snippet{1,2 ts:line-numbers} [snippet with region]
+
+:::
+```
+
+**Output**
+
+::: code-group
+
+<<< @/snippets/snippet.js
+
+<<< @/snippets/snippet-with-region.js#snippet{1,2 ts:line-numbers} [snippet with region]
+
+:::
+
 ## Markdown File Inclusion
 
-You can include a markdown file in another markdown file like this:
+You can include a markdown file in another markdown file, even nested.
+
+::: tip
+You can also prefix the markdown path with `@`, it will act as the source root. By default, it's the VitePress project root, unless `srcDir` is configured.
+:::
+
+For example, you can include a relative markdown file using this:
 
 **Input**
 
@@ -587,6 +738,42 @@ Some getting started stuff.
 Can be created using `.foorc.json`.
 ```
 
+It also supports selecting a line range:
+
+**Input**
+
+```md
+# Docs
+
+## Basics
+
+<!--@include: ./parts/basics.md{3,}-->
+```
+
+**Part file** (`parts/basics.md`)
+
+```md
+Some getting started stuff.
+
+### Configuration
+
+Can be created using `.foorc.json`.
+```
+
+**Equivalent code**
+
+```md
+# Docs
+
+## Basics
+
+### Configuration
+
+Can be created using `.foorc.json`.
+```
+
+The format of the selected line range can be: `{3,}`, `{,10}`, `{1,10}`
+
 ::: warning
 Note that this does not throw errors if your file is not present. Hence, when using this feature make sure that the contents are being rendered as expected.
 :::
@@ -618,4 +805,4 @@ module.exports = {
 }
 ```
 
-See full list of configurable properties in [Configs: App Configs](../config/app-configs#markdown).
+See full list of configurable properties in [Config Reference: App Config](../reference/site-config#markdown).

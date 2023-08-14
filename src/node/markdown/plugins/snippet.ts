@@ -1,31 +1,21 @@
-import fs from 'fs'
+import fs from 'fs-extra'
 import path from 'path'
-import MarkdownIt from 'markdown-it'
-import { RuleBlock } from 'markdown-it/lib/parser_block'
+import type MarkdownIt from 'markdown-it'
+import type { RuleBlock } from 'markdown-it/lib/parser_block'
+import type { MarkdownEnv } from '../env'
 
-function dedent(text: string) {
-  const wRegexp = /^([ \t]*)(.*)\n/gm
-  let match
-  let minIndentLength = null
+export function dedent(text: string): string {
+  const lines = text.split('\n')
 
-  while ((match = wRegexp.exec(text)) !== null) {
-    const [indentation, content] = match.slice(1)
-    if (!content) continue
+  const minIndentLength = lines.reduce((acc, line) => {
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] !== ' ' && line[i] !== '\t') return Math.min(i, acc)
+    }
+    return acc
+  }, Infinity)
 
-    const indentLength = indentation.length
-    if (indentLength > 0) {
-      minIndentLength =
-        minIndentLength !== null
-          ? Math.min(minIndentLength, indentLength)
-          : indentLength
-    } else break
-  }
-
-  if (minIndentLength) {
-    text = text.replace(
-      new RegExp(`^[ \t]{${minIndentLength}}(.*)`, 'gm'),
-      '$1'
-    )
+  if (minIndentLength < Infinity) {
+    return lines.map((x) => x.slice(minIndentLength)).join('\n')
   }
 
   return text
@@ -106,10 +96,10 @@ export const snippetPlugin = (md: MarkdownIt, srcDir: string) => {
      *    where #region and {meta} are optional
      *    and meta can be like '1,2,4-6 lang', 'lang' or '1,2,4-6'
      *
-     * captures: ['/path/to/file.extension', 'extension', '#region', '{meta}']
+     * captures: ['/path/to/file.extension', 'extension', '#region', '{meta}', '[title]']
      */
     const rawPathRegexp =
-      /^(.+(?:\.([a-z]+)))(?:(#[\w-]+))?(?: ?(?:{(\d+(?:[,-]\d+)*)? ?(\S+)?}))?$/
+      /^(.+(?:\.([a-z0-9]+)))(?:(#[\w-]+))?(?: ?(?:{(\d+(?:[,-]\d+)*)? ?(\S+)?}))? ?(?:\[(.+)\])?$/
 
     const rawPath = state.src
       .slice(start, end)
@@ -117,16 +107,30 @@ export const snippetPlugin = (md: MarkdownIt, srcDir: string) => {
       .replace(/^@/, srcDir)
       .trim()
 
-    const [filename = '', extension = '', region = '', lines = '', lang = ''] =
-      (rawPathRegexp.exec(rawPath) || []).slice(1)
+    const [
+      filepath = '',
+      extension = '',
+      region = '',
+      lines = '',
+      lang = '',
+      rawTitle = ''
+    ] = (rawPathRegexp.exec(rawPath) || []).slice(1)
+
+    const title = rawTitle || filepath.split('/').pop() || ''
 
     state.line = startLine + 1
 
     const token = state.push('fence', 'code', 0)
-    token.info = `${lang || extension}${lines ? `{${lines}}` : ''}`
+    token.info = `${lang || extension}${lines ? `{${lines}}` : ''}${
+      title ? `[${title}]` : ''
+    }`
 
+    const resolvedPath = path.resolve(
+      path.dirname((state.env as MarkdownEnv).path),
+      filepath
+    )
     // @ts-ignore
-    token.src = path.resolve(filename) + region
+    token.src = [resolvedPath, region.slice(1)]
     token.markup = '```'
     token.map = [startLine, startLine + 1]
 
@@ -136,42 +140,43 @@ export const snippetPlugin = (md: MarkdownIt, srcDir: string) => {
   const fence = md.renderer.rules.fence!
 
   md.renderer.rules.fence = (...args) => {
-    const [tokens, idx, , { loader }] = args
+    const [tokens, idx, , { includes }] = args
     const token = tokens[idx]
     // @ts-ignore
-    const tokenSrc = token.src
-    const [src, regionName] = tokenSrc ? tokenSrc.split('#') : ['']
+    const [src, regionName] = token.src ?? []
 
-    if (src) {
-      if (loader) {
-        loader.addDependency(src)
-      }
-      const isAFile = fs.lstatSync(src).isFile()
-      if (fs.existsSync(src) && isAFile) {
-        let content = fs.readFileSync(src, 'utf8')
+    if (!src) return fence(...args)
 
-        if (regionName) {
-          const lines = content.split(/\r?\n/)
-          const region = findRegion(lines, regionName)
+    if (includes) {
+      includes.push(src)
+    }
 
-          if (region) {
-            content = dedent(
-              lines
-                .slice(region.start, region.end)
-                .filter((line: string) => !region.regexp.test(line.trim()))
-                .join('\n')
-            )
-          }
-        }
+    const isAFile = fs.lstatSync(src).isFile()
+    if (!fs.existsSync(src) || !isAFile) {
+      token.content = isAFile
+        ? `Code snippet path not found: ${src}`
+        : `Invalid code snippet option`
+      token.info = ''
+      return fence(...args)
+    }
 
-        token.content = content
-      } else {
-        token.content = isAFile
-          ? `Code snippet path not found: ${src}`
-          : `Invalid code snippet option`
-        token.info = ''
+    let content = fs.readFileSync(src, 'utf8')
+
+    if (regionName) {
+      const lines = content.split(/\r?\n/)
+      const region = findRegion(lines, regionName)
+
+      if (region) {
+        content = dedent(
+          lines
+            .slice(region.start, region.end)
+            .filter((line) => !region.regexp.test(line.trim()))
+            .join('\n')
+        )
       }
     }
+
+    token.content = content
     return fence(...args)
   }
 

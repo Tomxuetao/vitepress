@@ -1,17 +1,29 @@
-import { siteDataRef } from './data.js'
-import { inBrowser, EXTERNAL_URL_RE, sanitizeFileName } from '../shared.js'
+import { siteDataRef } from './data'
+import {
+  inBrowser,
+  EXTERNAL_URL_RE,
+  sanitizeFileName,
+  type Awaitable
+} from '../shared'
+import {
+  h,
+  onMounted,
+  onUnmounted,
+  shallowRef,
+  type AsyncComponentLoader
+} from 'vue'
 
-export { inBrowser }
+export { inBrowser } from '../shared'
 
 /**
  * Join two paths by resolving the slash collision.
  */
-export function joinPath(base: string, path: string): string {
+export function joinPath(base: string, path: string) {
   return `${base}${path}`.replace(/\/+/g, '/')
 }
 
 export function withBase(path: string) {
-  return EXTERNAL_URL_RE.test(path)
+  return EXTERNAL_URL_RE.test(path) || path.startsWith('.')
     ? path
     : joinPath(siteDataRef.value.base, path)
 }
@@ -19,13 +31,10 @@ export function withBase(path: string) {
 /**
  * Converts a url path to the corresponding js chunk filename.
  */
-export function pathToFile(path: string): string {
+export function pathToFile(path: string) {
   let pagePath = path.replace(/\.html$/, '')
   pagePath = decodeURIComponent(pagePath)
-  if (pagePath.endsWith('/')) {
-    pagePath += 'index'
-  }
-
+  pagePath = pagePath.replace(/\/$/, '/index') // /foo/ -> /foo/index
   if (import.meta.env.DEV) {
     // always force re-fetch content in dev
     pagePath += `.md?t=${Date.now()}`
@@ -41,8 +50,15 @@ export function pathToFile(path: string): string {
         ) + '.md'
       // client production build needs to account for page hash, which is
       // injected directly in the page's html
-      const pageHash = __VP_HASH_MAP__[pagePath.toLowerCase()]
-      pagePath = `${base}assets/${pagePath}.${pageHash}.js`
+      let pageHash = __VP_HASH_MAP__[pagePath.toLowerCase()]
+      if (!pageHash) {
+        pagePath = pagePath.endsWith('_index.md')
+          ? pagePath.slice(0, -9) + '.md'
+          : pagePath.slice(0, -3) + '_index.md'
+        pageHash = __VP_HASH_MAP__[pagePath.toLowerCase()]
+      }
+      if (!pageHash) return null
+      pagePath = `${base}${__ASSETS_DIR__}/${pagePath}.${pageHash}.js`
     } else {
       // ssr build uses much simpler name mapping
       pagePath = `./${sanitizeFileName(
@@ -52,4 +68,39 @@ export function pathToFile(path: string): string {
   }
 
   return pagePath
+}
+
+export let contentUpdatedCallbacks: (() => any)[] = []
+
+/**
+ * Register callback that is called every time the markdown content is updated
+ * in the DOM.
+ */
+export function onContentUpdated(fn: () => any) {
+  contentUpdatedCallbacks.push(fn)
+  onUnmounted(() => {
+    contentUpdatedCallbacks = contentUpdatedCallbacks.filter((f) => f !== fn)
+  })
+}
+
+export function defineClientComponent(
+  loader: AsyncComponentLoader,
+  args?: any[],
+  cb?: () => Awaitable<void>
+) {
+  return {
+    setup() {
+      const comp = shallowRef()
+      onMounted(async () => {
+        let res = await loader()
+        // interop module default
+        if (res && (res.__esModule || res[Symbol.toStringTag] === 'Module')) {
+          res = res.default
+        }
+        comp.value = res
+        await cb?.()
+      })
+      return () => (comp.value ? h(comp.value, ...(args ?? [])) : null)
+    }
+  }
 }

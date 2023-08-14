@@ -1,34 +1,50 @@
 import {
-  InjectionKey,
-  Ref,
+  type InjectionKey,
+  type Ref,
   computed,
   inject,
   readonly,
   ref,
   shallowRef
 } from 'vue'
-import { Route } from './router.js'
+import type { Route } from './router'
 import siteData from '@siteData'
 import {
-  PageData,
-  SiteData,
+  type PageData,
+  type SiteData,
   resolveSiteDataByRoute,
   createTitle
-} from '../shared.js'
-import { withBase } from './utils.js'
+} from '../shared'
 
 export const dataSymbol: InjectionKey<VitePressData> = Symbol()
 
 export interface VitePressData<T = any> {
+  /**
+   * Site-level metadata
+   */
   site: Ref<SiteData<T>>
-  page: Ref<PageData>
+  /**
+   * themeConfig from .vitepress/config.js
+   */
   theme: Ref<T>
+  /**
+   * Page-level metadata
+   */
+  page: Ref<PageData>
+  /**
+   * page frontmatter data
+   */
   frontmatter: Ref<PageData['frontmatter']>
+  /**
+   * dynamic route params
+   */
+  params: Ref<PageData['params']>
   title: Ref<string>
   description: Ref<string>
   lang: Ref<string>
-  localePath: Ref<string>
   isDark: Ref<boolean>
+  dir: Ref<string>
+  localeIndex: Ref<string>
 }
 
 // site data is a singleton
@@ -48,7 +64,7 @@ if (import.meta.hot) {
 // per-app data
 export function initData(route: Route): VitePressData {
   const site = computed(() =>
-    resolveSiteDataByRoute(siteDataRef.value, route.path)
+    resolveSiteDataByRoute(siteDataRef.value, route.data.relativePath)
   )
 
   return {
@@ -56,14 +72,10 @@ export function initData(route: Route): VitePressData {
     theme: computed(() => site.value.themeConfig),
     page: computed(() => route.data),
     frontmatter: computed(() => route.data.frontmatter),
+    params: computed(() => route.data.params),
     lang: computed(() => site.value.lang),
-    localePath: computed(() => {
-      const { langs, lang } = site.value
-      const path = Object.keys(langs).find(
-        (langPath) => langs[langPath].lang === lang
-      )
-      return withBase(path || '/')
-    }),
+    dir: computed(() => site.value.dir),
+    localeIndex: computed(() => site.value.localeIndex || 'root'),
     title: computed(() => {
       return createTitle(site.value, route.data)
     }),

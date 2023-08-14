@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { ref } from 'vue'
-import { useFlyout } from '../composables/flyout.js'
+import { useFlyout } from '../composables/flyout'
 import VPIconChevronDown from './icons/VPIconChevronDown.vue'
 import VPIconMoreHorizontal from './icons/VPIconMoreHorizontal.vue'
 import VPMenu from './VPMenu.vue'
@@ -39,7 +39,7 @@ function onBlur() {
     >
       <span v-if="button || icon" class="text">
         <component v-if="icon" :is="icon" class="option-icon" />
-        {{ button }}
+        <span v-if="button" v-html="button"></span>
         <VPIconChevronDown class="text-icon" />
       </span>
 
@@ -87,35 +87,29 @@ function onBlur() {
   transform: translateY(0);
 }
 
+.button[aria-expanded="false"] + .menu {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(0);
+}
+
 .button {
   display: flex;
   align-items: center;
   padding: 0 12px;
-  height: var(--vp-nav-height-mobile);
+  height: var(--vp-nav-height);
   color: var(--vp-c-text-1);
   transition: color 0.5s;
-}
-
-@media (min-width: 960px) {
-  .button {
-    height: var(--vp-nav-height-desktop);
-  }
 }
 
 .text {
   display: flex;
   align-items: center;
-  line-height: var(--vp-nav-height-mobile);
+  line-height: var(--vp-nav-height);
   font-size: 14px;
   font-weight: 500;
   color: var(--vp-c-text-1);
   transition: color 0.25s;
-}
-
-@media (min-width: 960px) {
-  .text {
-    line-height: var(--vp-nav-height-desktop);
-  }
 }
 
 .option-icon {
@@ -141,16 +135,10 @@ function onBlur() {
 
 .menu {
   position: absolute;
-  top: calc(var(--vp-nav-height-mobile) / 2 + 20px);
+  top: calc(var(--vp-nav-height) / 2 + 20px);
   right: 0;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.25s, visibility 0.25s, transform 0.25s;
-}
-
-@media (min-width: 960px) {
-  .menu {
-    top: calc(var(--vp-nav-height-desktop) / 2 + 20px);
-  }
 }
 </style>

@@ -1,4 +1,11 @@
-import type { HtmlRendererOptions, IThemeRegistration } from 'shiki'
+import { customAlphabet } from 'nanoid'
+import c from 'picocolors'
+import {
+  BUNDLED_LANGUAGES,
+  type HtmlRendererOptions,
+  type ILanguageRegistration,
+  type IThemeRegistration
+} from 'shiki'
 import {
   addClass,
   createDiffProcessor,
@@ -9,7 +16,10 @@ import {
   getHighlighter,
   type Processor
 } from 'shiki-processor'
+import type { Logger } from 'vite'
 import type { ThemeOptions } from '../markdown'
+
+const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz', 10)
 
 /**
  * 2 steps:
@@ -20,8 +30,9 @@ import type { ThemeOptions } from '../markdown'
  *    [{ line: number, classes: string[] }]
  */
 const attrsToLines = (attrs: string): HtmlRendererOptions['lineOptions'] => {
+  attrs = attrs.replace(/^(?:\[.*?\])?.*?([\d,-]+).*/, '$1').trim()
   const result: number[] = []
-  if (!attrs.trim()) {
+  if (!attrs) {
     return []
   }
   attrs
@@ -51,7 +62,10 @@ const errorLevelProcessor = defineProcessor({
 })
 
 export async function highlight(
-  theme: ThemeOptions = 'material-palenight'
+  theme: ThemeOptions,
+  languages: ILanguageRegistration[] = [],
+  defaultLang: string = '',
+  logger: Pick<Logger, 'warn'> = console
 ): Promise<(str: string, lang: string, attrs: string) => string> {
   const hasSingleTheme = typeof theme === 'string' || 'name' in theme
   const getThemeName = (themeValue: IThemeRegistration) =>
@@ -66,57 +80,94 @@ export async function highlight(
 
   const highlighter = await getHighlighter({
     themes: hasSingleTheme ? [theme] : [theme.dark, theme.light],
+    langs: [...BUNDLED_LANGUAGES, ...languages],
     processors
   })
 
   const styleRE = /<pre[^>]*(style=".*?")/
   const preRE = /^<pre(.*?)>/
   const vueRE = /-vue$/
+  const lineNoRE = /:(no-)?line-numbers$/
+  const mustacheRE = /\{\{.*?\}\}/g
 
   return (str: string, lang: string, attrs: string) => {
     const vPre = vueRE.test(lang) ? '' : 'v-pre'
-    lang = lang.replace(vueRE, '').toLowerCase()
+    lang =
+      lang.replace(lineNoRE, '').replace(vueRE, '').toLowerCase() || defaultLang
+
+    if (lang) {
+      const langLoaded = highlighter.getLoadedLanguages().includes(lang as any)
+      if (!langLoaded && lang !== 'ansi' && lang !== 'txt') {
+        logger.warn(
+          c.yellow(
+            `\nThe language '${lang}' is not loaded, falling back to '${
+              defaultLang || 'txt'
+            }' for syntax highlighting.`
+          )
+        )
+        lang = defaultLang
+      }
+    }
 
     const lineOptions = attrsToLines(attrs)
-    const cleanup = (str: string) =>
-      str
-        .replace(preRE, (_, attributes) => `<pre ${vPre}${attributes}>`)
+    const cleanup = (str: string) => {
+      return str
+        .replace(
+          preRE,
+          (_, attributes) =>
+            `<pre ${vPre}${attributes.replace(' tabindex="0"', '')}>`
+        )
         .replace(styleRE, (_, style) => _.replace(style, ''))
+    }
 
-    if (hasSingleTheme) {
-      return cleanup(
-        highlighter.codeToHtml(str, {
-          lang,
-          lineOptions,
-          theme: getThemeName(theme)
-        })
+    const mustaches = new Map<string, string>()
+
+    const removeMustache = (s: string) => {
+      if (vPre) return s
+      return s.replace(mustacheRE, (match) => {
+        let marker = mustaches.get(match)
+        if (!marker) {
+          marker = nanoid()
+          mustaches.set(match, marker)
+        }
+        return marker
+      })
+    }
+
+    const restoreMustache = (s: string) => {
+      mustaches.forEach((marker, match) => {
+        s = s.replaceAll(marker, match)
+      })
+      return s
+    }
+
+    const fillEmptyHighlightedLine = (s: string) => {
+      return s.replace(
+        /(<span class="line highlighted">)(<\/span>)/g,
+        '$1<wbr>$2'
       )
     }
 
-    const dark = addClass(
-      cleanup(
-        highlighter.codeToHtml(str, {
-          lang,
-          lineOptions,
-          theme: getThemeName(theme.dark)
-        })
-      ),
-      'vp-code-dark',
-      'pre'
-    )
+    str = removeMustache(str).trim()
 
-    const light = addClass(
-      cleanup(
-        highlighter.codeToHtml(str, {
-          lang,
-          lineOptions,
-          theme: getThemeName(theme.light)
-        })
-      ),
-      'vp-code-light',
-      'pre'
-    )
+    const codeToHtml = (theme: IThemeRegistration) => {
+      const res =
+        lang === 'ansi'
+          ? highlighter.ansiToHtml(str, {
+              lineOptions,
+              theme: getThemeName(theme)
+            })
+          : highlighter.codeToHtml(str, {
+              lang,
+              lineOptions,
+              theme: getThemeName(theme)
+            })
+      return fillEmptyHighlightedLine(cleanup(restoreMustache(res)))
+    }
 
+    if (hasSingleTheme) return codeToHtml(theme)
+    const dark = addClass(codeToHtml(theme.dark), 'vp-code-dark', 'pre')
+    const light = addClass(codeToHtml(theme.light), 'vp-code-light', 'pre')
     return dark + light
   }
 }

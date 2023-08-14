@@ -1,25 +1,35 @@
-import ora from 'ora'
-import path from 'path'
 import fs from 'fs-extra'
-import { build, BuildOptions, UserConfig as ViteUserConfig } from 'vite'
-import { GetModuleInfo, RollupOutput } from 'rollup'
-import { slash } from '../utils/slash'
-import { SiteConfig } from '../config'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import {
+  build,
+  normalizePath,
+  type BuildOptions,
+  type Rollup,
+  type InlineConfig as ViteInlineConfig
+} from 'vite'
 import { APP_PATH } from '../alias'
+import type { SiteConfig } from '../config'
 import { createVitePressPlugin } from '../plugin'
-import { sanitizeFileName } from '../shared'
+import { sanitizeFileName, slash } from '../shared'
+import { task } from '../utils/task'
 import { buildMPAClient } from './buildMPAClient'
 
-export const okMark = '\x1b[32m✓\x1b[0m'
-export const failMark = '\x1b[31m✖\x1b[0m'
+// A list of default theme components that should only be loaded on demand.
+const lazyDefaultThemeComponentsRE =
+  /VP(HomeSponsors|DocAsideSponsors|TeamPage|TeamMembers|LocalSearchBox|AlgoliaSearchBox|CarbonAds|DocAsideCarbonAds)/
+
+const clientDir = normalizePath(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../client')
+)
 
 // bundles the VitePress app for both client AND server.
 export async function bundle(
   config: SiteConfig,
   options: BuildOptions
 ): Promise<{
-  clientResult: RollupOutput
-  serverResult: RollupOutput
+  clientResult: Rollup.RollupOutput | null
+  serverResult: Rollup.RollupOutput
   pageToHashMap: Record<string, string>
 }> {
   const pageToHashMap = Object.create(null)
@@ -33,16 +43,20 @@ export async function bundle(
   config.pages.forEach((file) => {
     // page filename conversion
     // foo/bar.md -> foo_bar.md
-    input[slash(file).replace(/\//g, '_')] = path.resolve(config.srcDir, file)
+    const alias = config.rewrites.map[file] || file
+    input[slash(alias).replace(/\//g, '_')] = path.resolve(config.srcDir, file)
   })
 
   // resolve options to pass to vite
   const { rollupOptions } = options
 
-  const resolveViteConfig = async (ssr: boolean): Promise<ViteUserConfig> => ({
+  const resolveViteConfig = async (
+    ssr: boolean
+  ): Promise<ViteInlineConfig> => ({
     root: config.srcDir,
+    cacheDir: config.cacheDir,
     base: config.site.base,
-    logLevel: 'warn',
+    logLevel: config.vite?.logLevel ?? 'warn',
     plugins: await createVitePressPlugin(
       config,
       ssr,
@@ -56,6 +70,14 @@ export async function bundle(
       ...options,
       emptyOutDir: true,
       ssr,
+      // minify with esbuild in MPA mode (for CSS)
+      minify: ssr
+        ? config.mpa
+          ? 'esbuild'
+          : false
+        : typeof options.minify === 'boolean'
+        ? options.minify
+        : !process.env.DEBUG,
       outDir: ssr ? config.tempDir : config.outDir,
       cssCodeSplit: false,
       rollupOptions: {
@@ -71,70 +93,79 @@ export async function bundle(
         output: {
           sanitizeFileName,
           ...rollupOptions?.output,
+          assetFileNames: `${config.assetsDir}/[name].[hash].[ext]`,
           ...(ssr
             ? {
-                entryFileNames: `[name].js`,
-                chunkFileNames: `[name].[hash].js`
+                entryFileNames: '[name].js',
+                chunkFileNames: '[name].[hash].js'
               }
             : {
+                entryFileNames: `${config.assetsDir}/[name].[hash].js`,
                 chunkFileNames(chunk) {
                   // avoid ads chunk being intercepted by adblock
                   return /(?:Carbon|BuySell)Ads/.test(chunk.name)
-                    ? `assets/chunks/ui-custom.[hash].js`
-                    : `assets/chunks/[name].[hash].js`
+                    ? `${config.assetsDir}/chunks/ui-custom.[hash].js`
+                    : `${config.assetsDir}/chunks/[name].[hash].js`
                 },
                 manualChunks(id, ctx) {
+                  if (lazyDefaultThemeComponentsRE.test(id)) {
+                    return
+                  }
+                  if (id.startsWith(`${clientDir}/theme-default`)) {
+                    return 'theme'
+                  }
                   // move known framework code into a stable chunk so that
                   // custom theme changes do not invalidate hash for all pages
+                  if (id.startsWith('\0vite')) {
+                    return 'framework'
+                  }
                   if (id.includes('plugin-vue:export-helper')) {
                     return 'framework'
                   }
                   if (
+                    id.includes(`${clientDir}/app`) &&
+                    id !== `${clientDir}/app/index.js`
+                  ) {
+                    return 'framework'
+                  }
+                  if (
                     isEagerChunk(id, ctx.getModuleInfo) &&
-                    (/@vue\/(runtime|shared|reactivity)/.test(id) ||
-                      /vitepress\/dist\/client/.test(id))
+                    /@vue\/(runtime|shared|reactivity)/.test(id)
                   ) {
                     return 'framework'
                   }
                 }
               })
         }
-      },
-      // minify with esbuild in MPA mode (for CSS)
-      minify: ssr ? (config.mpa ? 'esbuild' : false) : !process.env.DEBUG
-    }
+      }
+    },
+    configFile: config.vite?.configFile
   })
 
-  let clientResult: RollupOutput
-  let serverResult: RollupOutput
+  let clientResult!: Rollup.RollupOutput | null
+  let serverResult!: Rollup.RollupOutput
 
-  const spinner = ora()
-  spinner.start('building client + server bundles...')
-  try {
-    ;[clientResult, serverResult] = await (Promise.all([
-      config.mpa ? null : build(await resolveViteConfig(false)),
-      build(await resolveViteConfig(true))
-    ]) as Promise<[RollupOutput, RollupOutput]>)
-  } catch (e) {
-    spinner.stopAndPersist({
-      symbol: failMark
-    })
-    throw e
-  }
-  spinner.stopAndPersist({
-    symbol: okMark
+  await task('building client + server bundles', async () => {
+    clientResult = config.mpa
+      ? null
+      : ((await build(await resolveViteConfig(false))) as Rollup.RollupOutput)
+    serverResult = (await build(
+      await resolveViteConfig(true)
+    )) as Rollup.RollupOutput
   })
 
   if (config.mpa) {
     // in MPA mode, we need to copy over the non-js asset files from the
     // server build since there is no client-side build.
-    for (const chunk of serverResult.output) {
-      if (!chunk.fileName.endsWith('.js')) {
-        const tempPath = path.resolve(config.tempDir, chunk.fileName)
-        const outPath = path.resolve(config.outDir, chunk.fileName)
-        await fs.copy(tempPath, outPath)
-      }
-    }
+    await Promise.all(
+      serverResult.output.map(async (chunk) => {
+        if (!chunk.fileName.endsWith('.js')) {
+          const tempPath = path.resolve(config.tempDir, chunk.fileName)
+          const outPath = path.resolve(config.outDir, chunk.fileName)
+          await fs.copy(tempPath, outPath)
+        }
+      })
+    )
     // also copy over public dir
     const publicDir = path.resolve(config.srcDir, 'public')
     if (fs.existsSync(publicDir)) {
@@ -154,19 +185,19 @@ const cache = new Map<string, boolean>()
 /**
  * Check if a module is statically imported by at least one entry.
  */
-function isEagerChunk(id: string, getModuleInfo: GetModuleInfo) {
+function isEagerChunk(id: string, getModuleInfo: Rollup.GetModuleInfo) {
   if (
     id.includes('node_modules') &&
     !/\.css($|\\?)/.test(id) &&
     staticImportedByEntry(id, getModuleInfo, cache)
   ) {
-    return 'vendor'
+    return true
   }
 }
 
 function staticImportedByEntry(
   id: string,
-  getModuleInfo: GetModuleInfo,
+  getModuleInfo: Rollup.GetModuleInfo,
   cache: Map<string, boolean>,
   importStack: string[] = []
 ): boolean {

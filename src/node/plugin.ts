@@ -1,20 +1,41 @@
 import path from 'path'
 import c from 'picocolors'
-import { defineConfig, mergeConfig, Plugin, ResolvedConfig } from 'vite'
-import { SiteConfig } from './config'
-import { createMarkdownToVueRenderFn, clearCache } from './markdownToVue'
 import {
-  DIST_CLIENT_PATH,
+  mergeConfig,
+  searchForWorkspaceRoot,
+  type Plugin,
+  type ResolvedConfig,
+  type Rollup,
+  type UserConfig
+} from 'vite'
+import {
   APP_PATH,
+  DIST_CLIENT_PATH,
   SITE_DATA_REQUEST_PATH,
   resolveAliases
 } from './alias'
-import { slash } from './utils/slash'
-import { OutputAsset, OutputChunk } from 'rollup'
-import { staticDataPlugin } from './staticDataPlugin'
-import { PageDataPayload } from './shared'
-import { webFontsPlugin } from './webFontsPlugin'
+import { resolvePages, resolveUserConfig, type SiteConfig } from './config'
+import {
+  clearCache,
+  createMarkdownToVueRenderFn,
+  type MarkdownCompileResult
+} from './markdownToVue'
+import { dynamicRoutesPlugin } from './plugins/dynamicRoutesPlugin'
+import { localSearchPlugin } from './plugins/localSearchPlugin'
+import { rewritesPlugin } from './plugins/rewritesPlugin'
+import { socialIconsPlugin } from './plugins/socialIconsPlugin'
+import { staticDataPlugin } from './plugins/staticDataPlugin'
+import { webFontsPlugin } from './plugins/webFontsPlugin'
+import { slash, type PageDataPayload } from './shared'
+import { deserializeFunctions, serializeFunctions } from './utils/fnSerialize'
 
+declare module 'vite' {
+  interface UserConfig {
+    vitepress?: SiteConfig
+  }
+}
+
+const themeRE = /\/\.vitepress\/theme\/index\.(m|c)?(j|t)s$/
 const hashRE = /\.(\w+)\.js$/
 const staticInjectMarkerRE =
   /\b(const _hoisted_\d+ = \/\*(?:#|@)__PURE__\*\/\s*createStaticVNode)\("(.*)", (\d+)\)/g
@@ -27,8 +48,8 @@ const staticRestoreRE = /__VP_STATIC_(START|END)__/g
 const scriptClientRE = /<script\b[^>]*client\b[^>]*>([^]*?)<\/script>/
 
 const isPageChunk = (
-  chunk: OutputAsset | OutputChunk
-): chunk is OutputChunk & { facadeModuleId: string } =>
+  chunk: Rollup.OutputAsset | Rollup.OutputChunk
+): chunk is Rollup.OutputChunk & { facadeModuleId: string } =>
   !!(
     chunk.type === 'chunk' &&
     chunk.isEntry &&
@@ -55,7 +76,6 @@ export async function createVitePressPlugin(
     vue: userVuePluginOptions,
     vite: userViteConfig,
     pages,
-    ignoreDeadLinks,
     lastUpdated,
     cleanUrls
   } = siteConfig
@@ -80,7 +100,7 @@ export async function createVitePressPlugin(
   }
 
   let siteData = site
-  let hasDeadLinks = false
+  let allDeadLinks: MarkdownCompileResult['deadLinks'] = []
   let config: ResolvedConfig
 
   const vitePressPlugin: Plugin = {
@@ -102,27 +122,36 @@ export async function createVitePressPlugin(
     },
 
     config() {
-      const baseConfig = defineConfig({
+      const baseConfig: UserConfig = {
         resolve: {
           alias: resolveAliases(siteConfig, ssr)
         },
         define: {
-          __ALGOLIA__: !!site.themeConfig.algolia,
-          __CARBON__: !!site.themeConfig.carbonAds
+          __VP_LOCAL_SEARCH__: site.themeConfig?.search?.provider === 'local',
+          __ALGOLIA__:
+            site.themeConfig?.search?.provider === 'algolia' ||
+            !!site.themeConfig?.algolia, // legacy
+          __CARBON__: !!site.themeConfig?.carbonAds,
+          __ASSETS_DIR__: JSON.stringify(siteConfig.assetsDir)
         },
         optimizeDeps: {
           // force include vue to avoid duplicated copies when linked + optimized
-          include: ['vue'],
+          include: ['vue', 'vitepress > @vue/devtools-api'],
           exclude: ['@docsearch/js', 'vitepress']
         },
         server: {
           fs: {
-            allow: [DIST_CLIENT_PATH, srcDir, process.cwd()]
+            allow: [
+              DIST_CLIENT_PATH,
+              srcDir,
+              searchForWorkspaceRoot(process.cwd())
+            ]
           }
-        }
-      })
+        },
+        vitepress: siteConfig
+      }
       return userViteConfig
-        ? mergeConfig(userViteConfig, baseConfig)
+        ? mergeConfig(baseConfig, userViteConfig)
         : baseConfig
     },
 
@@ -138,10 +167,16 @@ export async function createVitePressPlugin(
         // head info is not needed by the client in production build
         if (config.command === 'build') {
           data = { ...siteData, head: [] }
+          // in production client build, the data is inlined on each page
+          // to avoid config changes invalidating every chunk.
+          if (!ssr) {
+            return `export default window.__VP_SITE_DATA__`
+          }
         }
-        return `export default JSON.parse(${JSON.stringify(
+        data = serializeFunctions(data)
+        return `${deserializeFunctions};export default deserializeFunctions(JSON.parse(${JSON.stringify(
           JSON.stringify(data)
-        )})`
+        )}))`
       }
     },
 
@@ -155,9 +190,7 @@ export async function createVitePressPlugin(
           id,
           config.publicDir
         )
-        if (deadLinks.length) {
-          hasDeadLinks = true
-        }
+        allDeadLinks.push(...deadLinks)
         if (includes.length) {
           includes.forEach((i) => {
             this.addWatchFile(i)
@@ -168,8 +201,22 @@ export async function createVitePressPlugin(
     },
 
     renderStart() {
-      if (hasDeadLinks && !ignoreDeadLinks) {
-        throw new Error(`One or more pages contain dead links.`)
+      if (allDeadLinks.length > 0) {
+        allDeadLinks.forEach(({ url, file }, i) => {
+          siteConfig.logger.warn(
+            c.yellow(
+              `${i === 0 ? '\n\n' : ''}(!) Found dead link ${c.cyan(
+                url
+              )} in file ${c.white(c.dim(file))}`
+            )
+          )
+        })
+        siteConfig.logger.info(
+          c.cyan(
+            '\nIf this is expected, you can disable this check via config. Refer: https://vitepress.dev/reference/site-config#ignoredeadlinks\n'
+          )
+        )
+        throw new Error(`${allDeadLinks.length} dead link(s) found.`)
       }
     },
 
@@ -178,6 +225,33 @@ export async function createVitePressPlugin(
         server.watcher.add(configPath)
         configDeps.forEach((file) => server.watcher.add(file))
       }
+
+      const onFileAddDelete = async (added: boolean, file: string) => {
+        // restart server on theme file creation / deletion
+        if (themeRE.test(slash(file))) {
+          siteConfig.logger.info(
+            c.green(
+              `${path.relative(process.cwd(), file)} ${
+                added ? 'created' : 'deleted'
+              }, restarting server...\n`
+            ),
+            { clear: true, timestamp: true }
+          )
+
+          await recreateServer?.()
+        }
+
+        // update pages, dynamicRoutes and rewrites on md file creation / deletion
+        if (file.endsWith('.md')) {
+          Object.assign(
+            siteConfig,
+            await resolvePages(siteConfig.srcDir, siteConfig.userConfig)
+          )
+        }
+      }
+      server.watcher
+        .on('add', onFileAddDelete.bind(null, true))
+        .on('unlink', onFileAddDelete.bind(null, false))
 
       // serve our index.html after vite history fallback
       return () => {
@@ -209,7 +283,7 @@ export async function createVitePressPlugin(
     },
 
     renderChunk(code, chunk) {
-      if (!ssr && isPageChunk(chunk as OutputChunk)) {
+      if (!ssr && isPageChunk(chunk as Rollup.OutputChunk)) {
         // For each page chunk, inject marker for start/end of static strings.
         // we do this here because in generateBundle the chunks would have been
         // minified and we won't be able to safely locate the strings.
@@ -269,20 +343,24 @@ export async function createVitePressPlugin(
     async handleHotUpdate(ctx) {
       const { file, read, server } = ctx
       if (file === configPath || configDeps.includes(file)) {
-        console.log(
+        siteConfig.logger.info(
           c.green(
-            `\n${path.relative(
+            `${path.relative(
               process.cwd(),
               file
-            )} changed, restarting server...`
-          )
+            )} changed, restarting server...\n`
+          ),
+          { clear: true, timestamp: true }
         )
+
         try {
-          clearCache()
-          await recreateServer?.()
-        } catch (err) {
-          console.error(c.red(`failed to restart server. error:\n`), err)
+          await resolveUserConfig(siteConfig.root, 'serve', 'development')
+        } catch (err: any) {
+          return
         }
+
+        clearCache()
+        await recreateServer?.()
         return
       }
 
@@ -315,9 +393,13 @@ export async function createVitePressPlugin(
 
   return [
     vitePressPlugin,
+    rewritesPlugin(siteConfig),
     vuePlugin,
     webFontsPlugin(siteConfig.useWebFonts),
     ...(userViteConfig?.plugins || []),
-    staticDataPlugin
+    await localSearchPlugin(siteConfig),
+    staticDataPlugin,
+    await dynamicRoutesPlugin(siteConfig),
+    socialIconsPlugin(siteConfig)
   ]
 }

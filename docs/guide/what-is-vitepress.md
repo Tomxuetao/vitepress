@@ -1,53 +1,57 @@
 # What is VitePress?
 
-VitePress is [VuePress](https://vuepress.vuejs.org/)' little brother, built on top of [Vite](https://vitejs.dev/).
+VitePress is a [Static Site Generator](https://en.wikipedia.org/wiki/Static_site_generator) (SSG) designed for building fast, content-centric websites. In a nutshell, VitePress takes your source content written in [Markdown](https://en.wikipedia.org/wiki/Markdown), applies a theme to it, and generates static HTML pages that can be easily deployed anywhere.
 
-::: warning
-VitePress is currently in `alpha` status. It is already suitable for out-of-the-box documentation use, but the config and theming API may still change between minor releases.
-:::
+<div class="tip custom-block" style="padding-top: 8px">
 
-## Motivation
+Just want to try it out? Skip to the [Quickstart](./getting-started).
 
-We love VuePress v1, but being built on top of Webpack, the time it takes to spin up the dev server for a simple doc site with a few pages is just becoming unbearable. Even HMR updates can take up to seconds to reflect in the browser!
+</div>
 
-Fundamentally, this is because VuePress v1 is a Webpack app under the hood. Even with just two pages, it's a full on Webpack project (including all the theme source files) being compiled. It gets even worse when the project has many pages – every page must first be fully compiled before the server can even display anything!
+## Use Cases
 
-Incidentally, Vite solves these problems really well: nearly instant server start, an on-demand compilation that only compiles the page being served, and lightning-fast HMR. Plus, there are a few additional design issues I have noted in VuePress v1 over time but never had the time to fix due to the amount of refactoring it would require.
+- **Documentation**
 
-Now, with Vite and Vue 3, it is time to rethink what a "Vue-powered static site generator" can really be.
+  VitePress ships with a default theme designed for technical documentation. It powers this page you are reading right now, along with the documentation for [Vite](https://vitejs.dev/), [Rollup](https://rollupjs.org/), [Pinia](https://pinia.vuejs.org/), [VueUse](https://vueuse.org/), [Vitest](https://vitest.dev/), [D3](https://d3js.org/), [UnoCSS](https://unocss.dev/), [Iconify](https://iconify.design/) and [many more](https://www.vuetelescope.com/explore?framework.slug=vitepress).
 
-## Improvements over VuePress v1
+  The [official Vue.js documentation](https://vuejs.org/) is also based on VitePress, but uses a custom theme shared between multiple translations.
 
-There're couple of things that are improved from VuePress v1....
+- **Blogs, Portfolios, and Marketing Sites**
 
-### It uses Vue 3
+  VitePress supports [fully customized themes](./custom-theme), with the developer experience of a standard Vite + Vue application. Being built on Vite also means you can directly leverage Vite plugins from its rich ecosystem. In addition, VitePress provides flexible APIs to [load data](./data-loading) (local or remote) and [dynamically generate routes](./routing#dynamic-routes). You can use it to build almost anything as long as the data can be determined at build time.
 
-Leverages Vue 3's improved template static analysis to stringify static content as much as possible. Static content is sent as string literals instead of JavaScript render function code – the JS payload is therefore much cheaper to parse, and hydration also becomes faster.
+  The official [Vue.js blog](https://blog.vuejs.org/) is a simple blog that generates its index page based on local content.
 
-Note the optimization is applied while still allowing the user to freely mix Vue components inside markdown content – the compiler does the static/dynamic separation for you automatically and you never need to think about it.
+## Developer Experience
 
-### It uses Vite under the hood
+VitePress aims to provide a great Developer Experience (DX) when working with Markdown content.
 
-- Faster dev server start
-- Faster hot updates
-- Faster build (uses Rollup internally)
+- **[Vite-Powered:](https://vitejs.dev/)** instant server start, with edits always instantly reflected (<100ms) without page reload.
 
-### Lighter page weight
+- **[Built-in Markdown Extensions:](./markdown)** Frontmatter, tables, syntax highlighting... you name it. Specifically, VitePress provides many advanced features for working with code blocks, making it ideal for highly technical documentation.
 
-Vue 3 tree-shaking + Rollup code splitting
-- Does not ship metadata for every page on every request. This decouples page weight from total number of pages. Only the current page's metadata is sent. Client side navigation fetches the new page's component and metadata together.
-- Does not use vue-router because the need of VitePress is very simple and specific - a simple custom router (under 200 LOC) is used instead.
+- **[Vue-Enhanced Markdown:](./using-vue)** each Markdown page is also a Vue [Single-File Component](https://vuejs.org/guide/scaling-up/sfc.html), thanks to Vue template's 100% syntax compatibility with HTML. You can embed interactivity in your static content using Vue templating features or imported Vue components.
 
-### Other differences
+## Performance
 
-VitePress is more opinionated and less configurable: VitePress aims to scale back the complexity in the current VuePress and restart from its minimalist roots.
+Unlike many traditional SSGs, a website generated by VitePress is in fact a [Single Page Application](https://en.wikipedia.org/wiki/Single-page_application) (SPA).
 
-VitePress is future oriented: VitePress only targets browsers that support native ES module imports. It encourages the use of native JavaScript without transpilation, and CSS variables for theming.
+- **Fast Initial Load**
 
-## Will this become the next vuepress in the future?
+  The initial visit to any page will be served the static, pre-rendered HTML for blazing fast loading speed and optimal SEO. The page then loads a JavaScript bundle that turns the page into a Vue SPA ("hydration"). The hydration process is extremely fast: on [PageSpeed Insights](https://pagespeed.web.dev/report?url=https%3A%2F%2Fvitepress.dev%2F), typical VitePress sites achieve near-perfect performance scores even on low-end mobile devices with a slow network.
 
-We already have [vuepress-next](https://github.com/vuepress/vuepress-next), which would be the next major version of VuePress. It also makes lots of improvements over VuePress v1, and also supports Vite now.
+- **Fast Post-load Navigation**
 
-VitePress is not compatible with the current VuePress ecosystem (mostly themes and plugins). The overall idea is that VitePress will have a drastically more minimal theming API (preferring JavaScript APIs instead of file layout conventions) and likely no plugins (all customization is done in themes).
+  More importantly, the SPA model leads to better user experience **after** the initial load. Subsequent navigation within the site will no longer cause a full page reload. Instead, the incoming page's content will be fetched and dynamically updated. VitePress also automatically pre-fetches page chunks for links that are within viewport. In most cases, post-load navigation will feel instant.
 
-There is an [ongoing discussion](https://github.com/vuejs/vitepress/discussions/548) about this topic. If you're curious, please leave your thoughts!
+- **Interactivity Without Penalty**
+
+  To be able to hydrate the dynamic Vue parts embedded inside static Markdown, each Markdown page is processed as a Vue component and compiled into JavaScript. This may sound inefficient, but the Vue compiler is smart enough to separate the static and dynamic parts, minimizing both the hydration cost and payload size. For the initial page load, the static parts are automatically eliminated from the JavaScript payload and skipped during hydration.
+
+## What About VuePress?
+
+VitePress is the spiritual successor of VuePress. The original VuePress was based on Vue 2 and webpack. With Vue 3 and Vite under the hood, VitePress provides significantly better DX, better production performance, a more polished default theme, and a more flexible customization API.
+
+The API difference between VitePress and VuePress mostly lies in theming and customization. If you are using VuePress 1 with the default theme, it should be relatively straightforward to migrate to VitePress.
+
+There has also been effort invested into VuePress 2, which also supports Vue 3 and Vite with more compatibility with VuePress 1. However, maintaining two SSGs in parallel isn't sustainable, so the Vue team has decided to focus on VitePress as the main recommended SSG in the long run.
